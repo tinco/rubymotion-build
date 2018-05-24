@@ -98,7 +98,7 @@ module Motion; module Project
              :api_version, :target_api_version, :archs, :assets_dirs, :icon,
              :logs_components, :version_code, :version_name, :permissions, :features,
              :optional_features, :services, :application_class, :manifest, :theme,
-             :support_libraries
+             :support_libraries, :multidex, :main_dex_list
 
     # Non-public.
     attr_accessor :vm_debug_logs, :libs
@@ -121,6 +121,7 @@ module Motion; module Project
       @version_name = '1.0'
       @application_class = nil
       @vm_debug_logs = false
+      @multidex = false
       @libs = Hash.new([])
       @manifest = AndroidManifest.new
       construct_manifest
@@ -134,7 +135,7 @@ module Motion; module Project
 
       if Motion::Project::Config.starter?
         self.assets_dirs << File.join(File.dirname(__FILE__), 'launch_image')
-        self.api_version = '23'
+        self.api_version = '27'
       end
     end
 
@@ -194,12 +195,6 @@ module Motion; module Project
 
       if !File.exist?("#{ndk_path}/platforms/android-#{api_version_ndk}")
         App.fail "The Android NDK installed on your system does not support API level #{api_version}. Run 'motion android-setup' to install a more recent NDK version."
-      end
-
-      if Motion::Project::Config.starter?
-        if self.api_version != '23'
-          App.fail "You are using RubyMotion Starter. Only Android API 23 is supported in this release. If you would like to target older or newer (in beta) versions of Android you can purchase a paid subscription."
-        end
       end
 
       super
@@ -263,6 +258,10 @@ module Motion; module Project
 
     def build_tools_dir
       @build_tools_dir ||= Dir.glob(sdk_path + '/build-tools/*').sort { |x, y| File.basename(x) <=> File.basename(y) }.max
+    end
+
+    def build_tools_version
+      @build_tools_version ||= Motion::Util::Version.new(build_tools_dir.match(/(\d)+\.(\d)+\.(\d)+/))
     end
 
     def apk_path
@@ -332,7 +331,7 @@ module Motion; module Project
           '9'
         when '20'
           '19'
-        when '25'
+        when '25', '26', '27'
           '24'
         else
           api_version
@@ -349,6 +348,12 @@ module Motion; module Project
 
     def cxxflags(arch)
       "#{cflags(arch)} -I\"#{ndk_path}/sources/cxx-stl/stlport/stlport\""
+    end
+
+    def appt_flags
+      aapt_flags = ""
+      aapt_flags << "--no-version-vectors" if build_tools_version >= Motion::Util::Version.new(27)
+      aapt_flags
     end
 
     def payload_library_filename
@@ -470,7 +475,7 @@ module Motion; module Project
     end
 
     def ctags_config_file
-      File.join(motiondir, 'data', 'bridgesupport-ctags-android.cfg')
+      File.join(motiondir, 'data', 'bridgesupport-android-ctags.cfg')
     end
 
     attr_reader :manifest_entries

@@ -67,6 +67,7 @@ namespace :build do
   task :simulator do
     pre_build_actions('iPhoneSimulator')
     App.build('iPhoneSimulator')
+    puts deprecation_warning
   end
 
   desc "Build the device version"
@@ -330,9 +331,6 @@ end
 
 desc "Create a .a static library"
 task :static do
-  if Motion::Project::Config.starter?
-    App.fail "You are using RubyMotion Starter. 'rake static' not supported in this release. If you would like to create static libraries you can purchase a paid subscription."
-  end
   libs = %w(iPhoneSimulator iPhoneOS).map do |platform|
     '"' + App.build(platform, :static => true) + '"'
   end
@@ -434,4 +432,27 @@ namespace :crashlog do
       sh "/usr/bin/open -a Console \"#{logs.last}\""
     end
   end
+end
+
+def deprecation_warning
+  <<-DEPRACATION_WARNING
+    ========================================================================
+    WARNING:
+
+    The rake tasks that ship with RubyMotion have been deprecated and
+    have been moved to a GitHub repository outside the main RubyMotion
+    installation. Having the rake tasks outside of the RubyMotion
+    installation directory will allow faster template issue resolution.
+
+    To use the new templates:
+
+    1. Run `motion` (this pull the GitHub repositories down).
+
+    2. Add the following line to your Rakefile:
+
+    # -*- coding: utf-8 -*-
+    $:.unshift("/Library/RubyMotion/lib")
+    $:.unshift("~/.rubymotion/rubymotion-templates") # Add this line
+    ========================================================================
+  DEPRACATION_WARNING
 end

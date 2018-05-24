@@ -76,11 +76,14 @@ module Motion; module Project
       app_frameworks = File.join(config.app_bundle(platform), 'Frameworks')
       config.embedded_frameworks.each do |framework|
         framework_path = File.join(app_frameworks, File.basename(framework))
-        if File.mtime(config.project_file) > File.mtime(framework_path) \
-            or !system("#{codesign_cmd} --verify \"#{framework_path}\" >& /dev/null")
-          App.info 'Codesign', framework_path
-          sh "#{codesign_cmd} -f -s \"#{config.codesign_certificate}\" --preserve-metadata=\"identifier,entitlements,resource-rules\" \"#{framework_path}\""
-        end
+        App.info 'Codesign', framework_path
+        sh "#{codesign_cmd} -f -s \"#{config.codesign_certificate}\" --preserve-metadata=\"identifier,entitlements,flags\" \"#{framework_path}\" 2> /dev/null"
+      end
+
+      config.embedded_dylibs.each do |lib|
+        lib_path = File.join(app_frameworks, File.basename(lib))
+        App.info 'Codesign', lib_path
+        sh "#{codesign_cmd} -f -s \"#{config.codesign_certificate}\" \"#{lib_path}\" 2> /dev/null"
       end
 
       if File.mtime(config.project_file) > File.mtime(bundle_path) \

@@ -32,6 +32,7 @@ module Motion; module Project
   class XcodeConfig < Config
     variable :xcode_dir, :sdk_version, :deployment_target, :frameworks,
              :weak_frameworks, :embedded_frameworks, :external_frameworks, :framework_search_paths,
+             :embedded_dylibs, :swift_version,
              :libs, :identifier, :codesign_certificate, :short_version, :entitlements, :delegate_class, :embed_dsym,
              :version
 
@@ -43,6 +44,7 @@ module Motion; module Project
       @embedded_frameworks = []
       @external_frameworks = []
       @framework_search_paths = []
+      @embedded_dylibs = []
       @libs = []
       @targets = []
       @bundle_signature = '????'
@@ -53,6 +55,7 @@ module Motion; module Project
       @embed_dsym = (development? ? true : false)
       @vendor_projects = []
       @version = '1.0'
+      @swift_version = `xcrun swift -version`.strip.match(/Apple Swift version ([\d\.]+)/)[1]
     end
 
     def xcode_dir=(xcode_dir)
@@ -118,7 +121,7 @@ module Motion; module Project
       %w(embedded_frameworks external_frameworks).each do |attr|
         value = send(attr)
         if !(value.is_a?(Array) and value.all? { |x| File.exist?(x) and File.extname(x) == '.framework' })
-          App.fail "app.#{attr} should be an array of framework paths"
+          App.fail "app.#{attr} should be an array of framework paths (and the paths must exist)."
         end
       end
 
@@ -172,9 +175,12 @@ module Motion; module Project
             end
           end
         end
-        supported_version || App.fail("The requested deployment target SDK " \
-                                      "is not available or supported by " \
-                                      "RubyMotion at this time.")
+        unless supported_version && !supported_version.empty?
+          App.fail("The requested deployment target SDK " \
+                   "is not available or supported by " \
+                   "RubyMotion at this time.")
+        end
+        supported_version
       end
     end
 

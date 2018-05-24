@@ -84,7 +84,7 @@ module Motion; module Project
       if config.respond_to?(:external_frameworks)
         external_frameworks = config.external_frameworks.map { |x| File.expand_path(x) }
         external_frameworks.each do |path|
-          headers = Dir.glob(File.join(path, 'Headers/**/*.h'))
+          headers = Glob.lexicographically(File.join(path, 'Headers/**/*.h'))
           bs_file = File.join(Builder.common_build_dir, File.expand_path(path) + '.bridgesupport')
           if !File.exist?(bs_file) or File.mtime(path) > File.mtime(bs_file)
             FileUtils.mkdir_p(File.dirname(bs_file))
@@ -100,7 +100,7 @@ module Motion; module Project
       objs_build_dir = File.join(build_dir, 'objs')
       FileUtils.mkdir_p(objs_build_dir)
       any_obj_file_built = false
-      project_files = Dir.glob("**/*.rb").map{ |x| File.expand_path(x) }
+      project_files = Glob.lexicographically("**/*.rb").map{ |x| File.expand_path(x) }
       is_default_archs = (archs == config.default_archs[platform])
       rubyc_bs_flags = bs_files.map { |x| "--uses-bs \"" + x + "\" " }.join(' ')
 
@@ -137,7 +137,7 @@ module Motion; module Project
             end
             asm = File.join(files_build_dir, "#{path}.#{arch}.s")
             @compiler[job] ||= {}
-            @compiler[job][arch] ||= IO.popen("/usr/bin/env RM_DATADIR_PATH=\"#{config.datadir(config.sdk_version)}\" VM_PLATFORM=\"#{platform}\" VM_KERNEL_PATH=\"#{kernel}\" VM_OPT_LEVEL=\"#{config.opt_level}\" /usr/bin/arch -arch #{compiler_exec_arch} \"#{ruby}\" #{rubyc_bs_flags} --emit-llvm-fast \"\"", "r+")
+            @compiler[job][arch] ||= IO.popen("/usr/bin/env RM_DATADIR_PATH=\"#{config.datadir(config.sdk_version)}\" VM_PLATFORM=\"#{platform}\" VM_KERNEL_PATH=\"#{kernel}\" VM_OPT_LEVEL=\"#{config.opt_level}\" /usr/bin/arch -arch #{compiler_exec_arch} \"#{ruby}\" #{rubyc_bs_flags} --project_dir \"#{Dir.pwd}\" --emit-llvm-fast \"\"", "r+")
             @compiler[job][arch].puts "#{asm}\n#{init_func}\n#{path}"
             @compiler[job][arch].gets # wait to finish compilation
 

@@ -38,7 +38,8 @@ module Motion; module Project
       @short_version = ENV['RM_TARGET_HOST_APP_SHORT_VERSION']
       @frameworks = ['UIKit', 'Foundation', 'CoreGraphics', 'CoreFoundation',
                      'CFNetwork', 'CoreAudio']
-      @device_family = eval(ENV['RM_TARGET_HOST_APP_DEVICE_FAMILY'])
+      family = ENV['RM_TARGET_HOST_APP_DEVICE_FAMILY'] || ":iphone"
+      @device_family = eval(family)
       @icons = []
       @manifest_assets = []
       @icon_name = ''

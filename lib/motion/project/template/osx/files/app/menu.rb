@@ -128,11 +128,11 @@ class AppDelegate
       addItemWithTitle('Zoom', action: 'performZoom:', keyEquivalent: '')
       addItem(NSMenuItem.separatorItem)
       addItemWithTitle('Bring All To Front', action: 'arrangeInFront:', keyEquivalent: '')
-    end.menu
+    end.submenu
 
     NSApp.helpMenu = addMenu('Help') do
       addItemWithTitle("#{appName} Help", action: 'showHelp:', keyEquivalent: '?')
-    end.menu
+    end.submenu
 
     NSApp.mainMenu = @mainMenu
   end

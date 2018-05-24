@@ -43,6 +43,7 @@ module Motion; module Project
       deps = dependencies[def_path]
       if deps
         if deps.include?(ref_path)
+          App.warn("Possible cyclical dependency between #{def_path} and #{ref_path}'s class hierarchy. Consider revision if runtime exceptions occur around undefined symbols.")
           return true
         end
         deps.each do |file|

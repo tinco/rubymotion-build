@@ -28,27 +28,33 @@ module Motion; module Project; class Vendor
     include XCPretty::Printer
 
     def pretty_format(text)
-      case text
-      when /^ProcessPCH/
-        print_pch_processing(text)
-      when /^CompileC/
-        print_compiling(text)
-      when /^=== BUILD TARGET/
-        print_build_target(text)
-      when /^PhaseScriptExecution/
-        print_run_script(text)
-      when /^(Ld|Libtool)/
-        print_linking(text)
-      when /^CpResource/
-        print_cpresource(text)
-      when /^CopyStringsFile/
-        print_copy_strings_file(text)
-      when /^ProcessInfoPlistFile/
-        print_processing_info_plist(text)
-      when /^=== CLEAN TARGET/
-        print_clean_target(text)
+      if text.is_a? String
+        case text
+        when /^ProcessPCH/
+          print_pch_processing(text)
+        when /^CompileC/
+          print_compiling(text)
+        when /^CompileSwift\s+/
+          print_compiling_swift(text)
+        when /^=== BUILD TARGET/
+          print_build_target(text)
+        when /^PhaseScriptExecution/
+          print_run_script(text)
+        when /^(Ld|Libtool)/
+          print_linking(text)
+        when /^CpResource/
+          print_cpresource(text)
+        when /^CopyStringsFile/
+          print_copy_strings_file(text)
+        when /^ProcessInfoPlistFile/
+          print_processing_info_plist(text)
+        when /^=== CLEAN TARGET/
+          print_clean_target(text)
+        else
+          ""
+        end
       else
-        ""
+        format("Warning", "Unable to pretty print the following: #{text}")
       end
     end
 
@@ -85,6 +91,10 @@ module Motion; module Project; class Vendor
       format("Compile", format_path(text.shellsplit[2]))
     end
 
+    def print_compiling_swift(text)
+      format("Compile", format_path(text.shellsplit[3]))
+    end
+
     def print_run_script(text)
       format("Script", "'#{text.lines.first.shellsplit[1..-2].join(' ').gsub('\ ', ' ')}'")
     end
@@ -102,9 +112,15 @@ module Motion; module Project; class Vendor
     end
 
     def format_path(path)
-      path = File.join(Dir.pwd, path)
+      return "#{path}" if !path.is_a?(String)
+      return "./#{path}" unless path.start_with?('/')
+
       root = ENV['RM_XCPRETTY_PRINTER_PROJECT_ROOT']
-      ".#{path[root.size..-1]}" # make relative to project root
+      if path.start_with?(root)
+        ".#{path[root.size..-1]}" # make relative to project root
+      else
+        path
+      end
     end
 
     def format(command, argument_text)

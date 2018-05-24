@@ -27,6 +27,7 @@ require 'thread'
 require 'motion/project/parallel_builder'
 require 'motion/project/dependency'
 require 'motion/project/experimental_dependency'
+require 'motion/util/glob'
 
 module Motion; module Project
   class Builder
@@ -75,11 +76,12 @@ module Motion; module Project
         embedded_frameworks = config.embedded_frameworks.map { |x| File.expand_path(x) }
         external_frameworks = config.external_frameworks.map { |x| File.expand_path(x) }
         (embedded_frameworks + external_frameworks).each do |path|
-          headers = Dir.glob(File.join(path, 'Headers/**/*.h'))
+          headers = Glob.lexicographically(File.join(path, 'Headers/**/*.h'))
           bs_file = File.join(Builder.common_build_dir, File.expand_path(path) + '.bridgesupport')
           if !File.exist?(bs_file) or File.mtime(path) > File.mtime(bs_file)
             FileUtils.mkdir_p(File.dirname(bs_file))
-            config.gen_bridge_metadata(platform, headers, bs_file, '', [])
+            bs_cflags = "-F'#{File.expand_path(File.join(path, '..'))}'"
+            config.gen_bridge_metadata(platform, headers, bs_file, bs_cflags, [])
           end
           bs_files << bs_file
         end
@@ -104,7 +106,7 @@ module Motion; module Project
       objs_build_dir = File.join(build_dir, 'objs')
       FileUtils.mkdir_p(objs_build_dir)
       any_obj_file_built = false
-      project_files = Dir.glob("**/*.rb").map{ |x| File.expand_path(x) }
+      project_files = Glob.lexicographically("**/*.rb").map{ |x| File.expand_path(x) }
       is_default_archs = (archs == config.default_archs[platform])
       rubyc_bs_flags = bs_files.map { |x| "--uses-bs \"" + x + "\" " }.join(' ')
 
@@ -142,7 +144,7 @@ module Motion; module Project
             asm_extension = platform == 'AppleTVOS' ? 'bc' : 's'
             asm = File.join(files_build_dir, "#{path}.#{arch}.#{asm_extension}")
             @compiler[job] ||= {}
-            @compiler[job][arch] ||= IO.popen("/usr/bin/env RM_DATADIR_PATH=\"#{config.datadir(config.sdk_version)}\" VM_PLATFORM=\"#{platform}\" VM_KERNEL_PATH=\"#{kernel}\" VM_OPT_LEVEL=\"#{config.opt_level}\" /usr/bin/arch -arch #{compiler_exec_arch} \"#{ruby}\" #{rubyc_bs_flags} --emit-llvm-fast \"\"", "r+")
+            @compiler[job][arch] ||= IO.popen("/usr/bin/env RM_DATADIR_PATH=\"#{config.datadir(config.sdk_version)}\" VM_PLATFORM=\"#{platform}\" VM_KERNEL_PATH=\"#{kernel}\" VM_OPT_LEVEL=\"#{config.opt_level}\" /usr/bin/arch -arch #{compiler_exec_arch} \"#{ruby}\" #{rubyc_bs_flags} --project_dir \"#{Dir.pwd}\" --emit-llvm-fast \"\"", "r+")
             @compiler[job][arch].puts "#{asm}\n#{init_func}\n#{path}"
             @compiler[job][arch].gets # wait to finish compilation
 
@@ -433,11 +435,11 @@ EOS
         end
       end
 
-      # Copy embedded frameworks.
+      # Copy embedded frameworks and dylibs.
       unless embedded_frameworks.empty?
         app_frameworks = File.join(config.app_bundle(platform), 'Frameworks')
         FileUtils.mkdir_p(app_frameworks)
-        embedded_frameworks.each do |src_path|
+        (embedded_frameworks + config.embedded_dylibs).each do |src_path|
           dest_path = File.join(app_frameworks, File.basename(src_path))
           if !File.exist?(dest_path) or File.mtime(src_path) > File.mtime(dest_path)
             App.info 'Copy', src_path
@@ -474,8 +476,9 @@ EOS
               # Find files with extnames to exclude or files inside bundles to
               # exclude (e.g. xcassets).
               File.extname(x) == '.lproj' ||
-                resources_exclude_extnames.include?(File.extname(x)) ||
-                  resources_exclude_extnames.include?(File.extname(x.split('/').first))
+                File.directory?(x) ||
+                  resources_exclude_extnames.include?(File.extname(x)) ||
+                    resources_exclude_extnames.include?(File.extname(x.split('/').first))
             end.map { |file| File.join(dir, file) }
           end
         end

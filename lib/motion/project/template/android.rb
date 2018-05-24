@@ -79,9 +79,13 @@ task :build do
     'google-play-services' => {
       'path' => '/google/google_play_services/libproject/google-play-services_lib',
       'jar' => '/libs/google-play-services.jar'
+    },
+    'android-support-multidex' => {
+      'jar' => '/library/libs/android-support-multidex.jar'
     }
   }
   support_libraries = []
+  App.config.support_libraries << 'android-support-multidex' if App.config.multidex
   extras_path = File.join(App.config.sdk_path, 'extras')
   App.config.support_libraries.each do |support_library|
     if library_config = supported_libraries.fetch(support_library, false)
@@ -121,6 +125,11 @@ task :build do
   permissions.each do |permission|
     permission = "android.permission.#{permission.to_s.upcase}" if permission.is_a?(Symbol)
     App.config.manifest.add_child('uses-permission', 'android:name' => "#{permission}")
+  end
+
+  # Multidex support
+  if App.config.multidex && App.config.application_class.nil?
+    App.config.manifest.child('application')['android:name'] = "android.support.multidex.MultiDexApplication"
   end
 
   # Features.
@@ -184,7 +193,7 @@ task :build do
   if !r_java_mtime or all_resources.any? { |x| Dir.glob(x + '/**/*').any? { |y| File.mtime(y) > r_java_mtime } }
     packages_list = App.config.vendored_projects.map { |x| x[:package] }.compact.join(':')
     extra_packages = packages_list.empty? ? '' : '--extra-packages ' + packages_list
-    sh "\"#{App.config.build_tools_dir}/aapt\" package -f -M \"#{android_manifest}\" #{aapt_assets_flags} #{aapt_resources_flags} -I \"#{android_jar}\" -m -J \"#{java_dir}\" #{extra_packages} --auto-add-overlay --max-res-version #{App.config.target_api_version}"
+    sh "\"#{App.config.build_tools_dir}/aapt\" package -f -M \"#{android_manifest}\" #{aapt_assets_flags} #{aapt_resources_flags} -I \"#{android_jar}\" -m -J \"#{java_dir}\" #{extra_packages} --auto-add-overlay --max-res-version #{App.config.target_api_version} #{App.config.appt_flags}"
 
     r_java = Dir.glob(java_dir + '/**/R.java')
     classes_dir = File.join(app_build_dir, 'classes')
@@ -231,7 +240,7 @@ task :build do
         FileUtils.mkdir_p(File.dirname(asm))
         @compiler[job] ||= {}
         ruby_arch = arch.start_with?('arm64') ? 'x86_64' : 'i386'
-        @compiler[job][arch] ||= IO.popen("/usr/bin/env VM_PLATFORM=android VM_KERNEL_PATH=\"#{kernel_bc}\" VM_OPT_LEVEL=\"#{App.config.opt_level}\" arch -#{ruby_arch} \"#{ruby}\" #{ruby_bs_flags} --emit-llvm-fast \"\"", "r+")
+        @compiler[job][arch] ||= IO.popen("/usr/bin/env VM_PLATFORM=android VM_KERNEL_PATH=\"#{kernel_bc}\" VM_OPT_LEVEL=\"#{App.config.opt_level}\" arch -#{ruby_arch} \"#{ruby}\" #{ruby_bs_flags} --project_dir \"#{Dir.pwd}\" --emit-llvm-fast \"\"", "r+")
         @compiler[job][arch].puts "#{asm}\n#{init_func}\n#{ruby_path}"
         @compiler[job][arch].gets # wait to finish compilation
         sh "#{App.config.cc} #{App.config.asflags(arch)} -c \"#{asm}\" -o \"#{ruby_obj}\""
@@ -494,6 +503,17 @@ EOS
       # We need to insert code to load the payload library. It has to be done either in the main activity class or in the custom application class (if provided), as the later will be loaded first.
       java_file_txt << "\tstatic {\n\t\tjava.lang.System.loadLibrary(\"#{App.config.payload_library_name}\");\n\t}\n"
     end
+
+    if name == App.config.application_class && App.config.multidex
+      # If a custom application class has been provided and multidex is enabled, we have to enable multidex implementing this method
+      java_file_txt << <<EOS
+\t@Override
+\tprotected void attachBaseContext(android.content.Context context) {
+\t\tsuper.attachBaseContext(context);
+\t\tandroid.support.multidex.MultiDex.install(this);
+\t}
+EOS
+    end
     java_file_txt << "}\n"
     java_file = File.join(java_app_package_dir, name + '.java')
     if !File.exist?(java_file) or File.read(java_file) != java_file_txt
@@ -537,13 +557,36 @@ EOS
   parallel.run
 
   # Generate the dex file.
-  dex_classes = File.join(app_build_dir, 'classes.dex')
-  if !File.exist?(dex_classes) \
-      or File.mtime(App.config.project_file) > File.mtime(dex_classes) \
-      or classes_changed \
-      or vendored_jars.any? { |x| File.mtime(x) > File.mtime(dex_classes) }
-    App.info 'Create', dex_classes
-    sh "\"#{App.config.build_tools_dir}/dx\" --dex --no-strict --incremental --output \"#{dex_classes}\" \"#{classes_dir}\" \"#{App.config.sdk_path}/tools/support/annotations.jar\" #{vendored_jars.compact.map{ |x| "'#{x}'" }.join(' ')}"
+  if App.config.multidex
+    FileUtils.rm Dir.glob(File.join(app_build_dir, '*.dex'))
+    main_dex_list = <<-EOS
+android/support/multidex/BuildConfig.class
+android/support/multidex/MultiDex$V14.class
+android/support/multidex/MultiDex$V19.class
+android/support/multidex/MultiDex$V4.class
+android/support/multidex/MultiDex.class
+android/support/multidex/MultiDexApplication.class
+android/support/multidex/MultiDexExtractor$1.class
+android/support/multidex/MultiDexExtractor.class
+android/support/multidex/ZipUtil$CentralDirectory.class
+android/support/multidex/ZipUtil.class
+#{App.config.package}/#{App.config.main_activity}.class
+EOS
+    main_dex_list << "#{App.config.package}/#{App.config.application_class}.class\n" if App.config.application_class
+    main_dex_list << App.config.main_dex_list if App.config.main_dex_list
+    main_dex_list_path = File.join(app_build_dir, 'main-dex-list.txt')
+    File.open(main_dex_list_path, 'w') { |io| io.write(main_dex_list) }
+    App.info 'Create', 'dex files'
+    sh "\"#{App.config.build_tools_dir}/dx\" -JXmx2048m --dex --no-strict --multi-dex --main-dex-list \"#{main_dex_list_path}\" --output \"#{app_build_dir}\" \"#{classes_dir}\" \"#{App.config.sdk_path}/tools/support/annotations.jar\" #{vendored_jars.compact.map{ |x| "'#{x}'" }.join(' ')}"
+  else
+    dex_classes = File.join(app_build_dir, 'classes.dex')
+    if !File.exist?(dex_classes) \
+        or File.mtime(App.config.project_file) > File.mtime(dex_classes) \
+        or classes_changed \
+        or vendored_jars.any? { |x| File.mtime(x) > File.mtime(dex_classes) }
+      App.info 'Create', dex_classes
+      sh "\"#{App.config.build_tools_dir}/dx\" -JXmx2048m --dex --no-strict --incremental --output \"#{dex_classes}\" \"#{classes_dir}\" \"#{App.config.sdk_path}/tools/support/annotations.jar\" #{vendored_jars.compact.map{ |x| "'#{x}'" }.join(' ')}"
+    end
   end
 
   keystore = nil
@@ -560,19 +603,21 @@ EOS
     App.fail "app.release_keystore(path, alias_name) must be called when doing a release build" unless keystore
   end
 
+  dex_files = Dir.glob(File.join(app_build_dir, '*.dex'))
+
   # Generate the APK file.
   archive = App.config.apk_path
   if !File.exist?(archive) \
-      or File.mtime(dex_classes) > File.mtime(archive) \
+      or dex_files.any? { |f| File.mtime(f) > File.mtime(archive) } \
       or File.mtime(android_manifest) > File.mtime(archive) \
       or libpayload_paths.any? { |x| File.mtime(x) > File.mtime(archive) } \
       or assets_dirs.any? { |x| File.mtime(x) > File.mtime(archive) } \
       or resources_dirs.any? { |x| File.mtime(x) > File.mtime(archive) } \
       or native_libs.any? { |x| File.mtime("#{app_build_dir}/#{x}") > File.mtime(archive) }
     App.info 'Create', archive
-    sh "\"#{App.config.build_tools_dir}/aapt\" package -f -M \"#{android_manifest}\" #{aapt_assets_flags} #{aapt_resources_flags} -I \"#{android_jar}\" -F \"#{archive}\" --auto-add-overlay  --max-res-version #{App.config.target_api_version}"
+    sh "\"#{App.config.build_tools_dir}/aapt\" package -f -M \"#{android_manifest}\" #{aapt_assets_flags} #{aapt_resources_flags} -I \"#{android_jar}\" -F \"#{archive}\" --auto-add-overlay  --max-res-version #{App.config.target_api_version} #{App.config.appt_flags}"
     Dir.chdir(app_build_dir) do
-      [File.basename(dex_classes), *libpayload_subpaths, *native_libs, *gdbserver_subpaths].each do |file|
+      [*dex_files.map { |f| File.basename(f) }, *libpayload_subpaths, *native_libs, *gdbserver_subpaths].each do |file|
         line = "\"#{App.config.build_tools_dir}/aapt\" add -f \"#{File.basename(archive)}\" \"#{file}\""
         line << " > /dev/null" unless Rake.application.options.trace
         sh line

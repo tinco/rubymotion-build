@@ -24,6 +24,7 @@
 # SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 require 'pathname'
+require 'motion/util/glob'
 
 module Motion; module Project
   class Vendor
@@ -100,7 +101,7 @@ module Motion; module Project
       App.info 'Build', @path
       build_dir = build_dir(platform)
       libs = (@opts[:products] or Dir.glob('*.a'))
-      source_files = (@opts[:source_files] or ['**/*.{c,m,cpp,cxx,mm,h}']).map { |pattern| Dir.glob(pattern) }.flatten
+      source_files = (@opts[:source_files] or ['**/*.{c,m,cpp,cxx,mm,h}']).map { |pattern| Glob.lexicographically(pattern) }.flatten
       cflags = (@opts[:cflags] or '')
 
       source_files.each do |srcfile|
@@ -170,24 +171,9 @@ EOS
       end
 
       headers = source_files.select { |p| File.extname(p) == '.h' }
-      bs_files = []
       unless headers.empty?
-
-        # Fix for RM-851
-        if macro_header = headers.detect { |h| h.include?("FBSDKMacros") }
-          headers.delete(macro_header)
-          headers.unshift(macro_header)
-        end
-
         bs_file = bridgesupport_build_path
-        if !File.exist?(bs_file) or headers.any? { |h| File.mtime(h) > File.mtime(bs_file) }
-          FileUtils.mkdir_p File.dirname(bs_file)
-          bs_cflags = (@opts[:bridgesupport_cflags] or cflags)
-          bs_exceptions = (@opts[:bridgesupport_exceptions] or [])
-          @config.gen_bridge_metadata(platform, headers, bs_file, bs_cflags, bs_exceptions)
-        end
-        bs_files << bs_file
-        @bs_files = bs_files.map { |x| File.expand_path(x) }
+        generate_bridgesupport(platform, bs_file, headers)
       end
     end
 
@@ -206,18 +192,28 @@ EOS
 
         # Copy .a files into the platform build directory.
         prods = @opts[:products]
-        Dir.glob(File.join(XcodeBuildDir, '*.a')).each do |lib|
+        libs = Dir.glob(File.join(XcodeBuildDir, '*.a')) + Dir.glob(File.join(XcodeBuildDir, '*.framework'))
+        libs.each do |lib|
           next if prods and !prods.include?(File.basename(lib))
           lib = File.readlink(lib) if File.symlink?(lib)
-          sh "/bin/cp \"#{lib}\" \"#{build_dir}\""
+          sh "/bin/cp -R \"#{lib}\" \"#{build_dir}\""
         end
 
         `/usr/bin/touch \"#{build_dir}\"`
       end
 
       @libs = Dir.glob("#{build_dir}/*.a").map { |x| File.expand_path(x) }
-      if @libs.empty? && !@opts[:allow_empty_products]
-        App.fail "Building vendor project `#{@path}' failed to create at least one `.a' library."
+
+      use_swift = false
+      frameworks = Dir.glob("#{build_dir}/*.framework").map { |x|
+        use_swift = true unless Dir.glob("#{x}/**/*.swiftmodule").empty?
+        File.expand_path(x)
+      }
+      add_swift_libraries(platform) if use_swift
+      @config.embedded_frameworks += frameworks
+
+      if (@libs.empty? && frameworks.empty?) && !@opts[:allow_empty_products]
+        App.fail "Building vendor project `#{@path}' failed to create at least one `.a' or `.framework' library."
       end
 
       # Generate the bridgesupport file if we need to.
@@ -226,25 +222,28 @@ EOS
       if headers_dir
         # Dir.glob does not traverse symlinks with `**`, using this pattern
         # will at least traverse symlinks one level down.
-        headers = Dir.glob(File.join(project_dir, headers_dir, '**{,/*/**}/*.h'))
-
-        # Fix for RM-851
-        if macro_header = headers.detect { |h| h.include?("FBSDKMacros") }
-          headers.delete(macro_header)
-          headers.unshift(macro_header)
-        end
-
-        if !File.exist?(bs_file) or headers.any? { |x| File.mtime(x) > File.mtime(bs_file) }
-          FileUtils.mkdir_p File.dirname(bs_file)
-          bs_cflags = (@opts[:bridgesupport_cflags] or @opts[:cflags] or '')
-          bs_exceptions = (@opts[:bridgesupport_exceptions] or [])
-          @config.gen_bridge_metadata(platform, headers, bs_file, bs_cflags, bs_exceptions)
-        end
-        @bs_files << File.expand_path(bs_file)
+        headers = Glob.lexicographically(File.join(project_dir, headers_dir, '**{,/*/**}/*.h'))
+        generate_bridgesupport(platform, bs_file, headers)
       end
     end
 
+    def build_bridgesupport(platform)
+      bs_file = @opts[:bs_file]
+      headers = @opts[:headers]
+      generate_bridgesupport(platform, bs_file, headers)
+    end
+
     private
+
+    def generate_bridgesupport(platform, bs_file, headers)
+      if !File.exist?(bs_file) or headers.any? { |h| File.mtime(h) > File.mtime(bs_file) }
+        FileUtils.mkdir_p File.dirname(bs_file)
+        bs_cflags = (@opts[:bridgesupport_cflags] or @opts[:cflags] or '')
+        bs_exceptions = (@opts[:bridgesupport_exceptions] or [])
+        @config.gen_bridge_metadata(platform, headers, bs_file, bs_cflags, bs_exceptions)
+      end
+      @bs_files << File.expand_path(bs_file)
+    end
 
     def build_dir(platform)
       path = "build-#{platform}"
@@ -262,6 +261,24 @@ EOS
       method = "#{prefix}_#{@type}".intern
       raise "Invalid vendor project type: #{@type}" unless respond_to?(method)
       method
+    end
+
+    def add_swift_libraries(platform)
+      # Pick up minimum library set
+      case platform
+      when /iPhone/, /AppleTV/
+        libraries = %w(Core CoreGraphics os Metal MetalKit CoreImage Darwin Dispatch Foundation ObjectiveC QuartzCore UIKit)
+      when 'MacOSX'
+        libraries = %w(AppKit Core CoreData CoreGraphics CoreImage Darwin Dispatch Foundation IOKit ObjectiveC QuartzCore XPC)
+      when /Watch/
+        libraries = %w(Core CoreGraphics CoreLocation Darwin Dispatch Foundation HomeKit MapKit ObjectiveC SceneKit simd UIKit WatchKit)
+      end
+      # Add libraries which used in app
+      libraries += @config.frameworks
+
+      dir = File.join(@config.xcode_dir, "Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/#{platform.downcase}")
+      libraries = libraries.flatten.uniq.map { |x| "#{dir}/libswift#{x}.dylib" }.keep_if { |x| File.exist?(x) }
+      @config.embedded_dylibs.concat(libraries)
     end
 
     # First check if an explicit metadata file exists and, if so, write
@@ -338,7 +355,7 @@ EOS
         App.fail "Unknown platform : #{platform}"
       end
 
-      invoke_xcodebuild("-project '#{settings[:xcodeproj]}' #{xcopts} -configuration '#{settings[:configuration]}' -sdk #{platform.downcase}#{@config.sdk_version} #{@config.arch_flags(platform)} #{xcconfig} #{action}")
+      invoke_xcodebuild("-project '#{settings[:xcodeproj]}' #{xcopts} -configuration '#{settings[:configuration]}' -sdk #{platform.downcase}#{@config.sdk_version} #{@config.arch_flags(platform)} #{xcconfig} #{action} SWIFT_VERSION=#{@config.swift_version}")
     end
 
     def invoke_xcodebuild(cmd)

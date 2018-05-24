@@ -112,7 +112,7 @@ module Motion; module Project
       objs_build_dir = File.join(build_dir, 'objs')
       FileUtils.mkdir_p(objs_build_dir)
       any_obj_file_built = false
-      project_files = Dir.glob("**/*.rb").map{ |x| File.expand_path(x) }
+      project_files = Glob.lexicographically("**/*.rb").map{ |x| File.expand_path(x) }
       is_default_archs = (archs == config.default_archs[platform])
       rubyc_bs_flags = bs_files.map { |x| "--uses-bs \"" + x + "\" " }.join(' ')
 
@@ -150,7 +150,7 @@ module Motion; module Project
             asm_extension = platform == 'WatchOS' ? 'bc' : 's'
             asm = File.join(files_build_dir, "#{path}.#{arch}.#{asm_extension}")
             @compiler[job] ||= {}
-            @compiler[job][arch] ||= IO.popen("/usr/bin/env RM_DATADIR_PATH=\"#{config.datadir(config.sdk_version)}\" VM_PLATFORM=\"#{platform}\" VM_KERNEL_PATH=\"#{kernel}\" VM_OPT_LEVEL=\"#{config.opt_level}\" /usr/bin/arch -arch #{compiler_exec_arch} \"#{ruby}\" #{rubyc_bs_flags} --emit-llvm-fast \"\"", "r+")
+            @compiler[job][arch] ||= IO.popen("/usr/bin/env RM_DATADIR_PATH=\"#{config.datadir(config.sdk_version)}\" VM_PLATFORM=\"#{platform}\" VM_KERNEL_PATH=\"#{kernel}\" VM_OPT_LEVEL=\"#{config.opt_level}\" /usr/bin/arch -arch #{compiler_exec_arch} \"#{ruby}\" #{rubyc_bs_flags} --project_dir \"#{Dir.pwd}\" --emit-llvm-fast \"\"", "r+")
             @compiler[job][arch].puts "#{asm}\n#{init_func}\n#{path}"
             @compiler[job][arch].gets # wait to finish compilation
 

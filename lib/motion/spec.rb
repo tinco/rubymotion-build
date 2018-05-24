@@ -466,7 +466,7 @@ module Bacon
 
         if e.is_a?(Exception)
           ErrorLog << "#{e.class}: #{e.message}\n"
-          lines = $DEBUG ? e.backtrace : e.backtrace.find_all { |line| line !~ /bin\/macbacon|\/mac_bacon\.rb:\d+/ }
+          lines = $DEBUG ? e.backtrace : e.backtrace.find_all { |line| line !~ %r{lib/motion/spec.rb:\d+} }
           lines.each_with_index { |line, i|
             ErrorLog << "\t#{line}#{i==0 ? ": #{@context.name} - #{@description}" : ""}\n"
           }

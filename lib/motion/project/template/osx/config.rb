@@ -54,15 +54,6 @@ module Motion; module Project
     def deploy_platform; 'MacOSX'; end
     def device_family; 'mac'; end
 
-    def validate
-      sdk_ver = Util::Version.new(sdk_version)
-      if sdk_ver >= Util::Version.new('10.11') && osx_host_version < sdk_ver
-        App.fail "To use specified OSX SDK version, it requires running on host of same OSX version or higher. But you are running OSX #{osx_host_version}"
-      end
-
-      super
-    end
-
     def archs
       @archs ||= begin
         archs = super

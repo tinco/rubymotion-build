@@ -26,6 +26,7 @@
 require 'pathname'
 require 'motion/project/app'
 require 'motion/util/version'
+require 'motion/util/glob'
 
 module Motion; module Project
   class Config
@@ -79,7 +80,7 @@ module Motion; module Project
 
     def initialize(project_dir, build_mode)
       @project_dir = project_dir
-      @files = Dir.glob(File.join(project_dir, 'app/**/*.rb'))
+      @files = Glob.lexicographically(File.join(project_dir, 'app/**/*.rb'))
       @build_mode = build_mode
       @name = 'Untitled'
       @resources_dirs = [File.join(project_dir, 'resources')]
@@ -152,12 +153,12 @@ module Motion; module Project
     end
 
     def resources_dir
-      warn("`app.resources_dir' is deprecated; use `app.resources_dirs'");
+      warn("`app.resources_dir' is deprecated; use `app.resources_dirs'")
       @resources_dirs.first
     end
 
     def resources_dir=(dir)
-      warn("`app.resources_dir' is deprecated; use `app.resources_dirs'");
+      warn("`app.resources_dir' is deprecated; use `app.resources_dirs'")
       @resources_dirs = [dir]
     end
 
@@ -259,7 +260,7 @@ module Motion; module Project
         # Core library + core helpers.
         Dir.chdir(File.join(File.dirname(__FILE__), '..')) do
           (['spec.rb'] +
-          Dir.glob(File.join('spec', 'helpers', '*.rb')) +
+           Glob.lexicographically(File.join('spec', 'helpers', '*.rb')) +
           Dir.glob(File.join('project', 'template', App.template.to_s, 'spec-helpers', '*.rb')))
             .map { |x| File.expand_path(x) }
         end
@@ -269,9 +270,9 @@ module Motion; module Project
     def spec_files
       @spec_files ||= begin
         # Project helpers.
-        helpers = Dir.glob(File.join(specs_dir, 'helpers', '**', '*.rb'))
+        helpers = Glob.lexicographically(File.join(specs_dir, 'helpers', '**', '*.rb'))
         # Project specs.
-        specs = Dir.glob(File.join(specs_dir, '**', '*.rb')) - helpers
+        specs = Glob.lexicographically(File.join(specs_dir, '**', '*.rb')) - helpers
         if files_filter = ENV['files']
           # Filter specs we want to run. A filter can be either the basename of a spec file or its path.
           files_filter = files_filter.split(',')

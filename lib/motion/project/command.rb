@@ -23,6 +23,9 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 # SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+require 'pathname'
+require 'motion/util/glob'
+
 module Motion; module Project
   # Deprecated base command class, will be removed in RM v3.
   #
@@ -81,4 +84,4 @@ end; end
 # Now load plugins installed the old way.
 #
 # TODO deprecate in favor of RubyGems plugins?
-Dir.glob(File.join(ENV['HOME'], 'Library/RubyMotion/command', '*.rb')).each { |x| require x }
+Glob.lexicographically(File.join(ENV['HOME'], 'Library/RubyMotion/command', '*.rb')).each { |x| require x }

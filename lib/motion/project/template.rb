@@ -27,26 +27,39 @@ require 'motion/error'
 
 require 'erb'
 require 'fileutils'
+require 'yaml'
 
 module Motion; module Project
+  class CommunityTemplates
+  end
+
   class Template
     DefaultTemplate = 'ios'
 
     # for ERB
     attr_reader :name
 
-    local_templates = File.expand_path(File.join(__FILE__, '../template'))
-    Paths = [
-      local_templates,
-      File.expand_path(File.join(ENV['HOME'], 'Library/RubyMotion/template'))
-    ]
+    offline_templates = File.expand_path(File.join(__FILE__, '../template'))
+    template_git_directory = File.expand_path(File.join("~", '.rubymotion/rubymotion-templates'))
+    template_directory = File.expand_path(File.join("~", '.rubymotion/rubymotion-templates/motion/project/template'))
 
-    # Do not override the template location when using a development version of
-    # RubyMotion which does have all the templates.
-    unless File.exist?(File.join(local_templates, 'android.rb'))
-      pre_templates = '/Library/RubyMotionPre/lib/motion/project/template'
-      Paths << pre_templates if File.exist?(pre_templates)
+    if ENV['RUBYMOTION_TEMPLATES_OVERRIDE']
+      puts "=========================================================================================="
+      puts "RubyMotion templates path has been overridden to: #{ENV['RUBYMOTION_TEMPLATES_OVERRIDE']}."
+      puts "=========================================================================================="
+      Paths = [ENV['RUBYMOTION_TEMPLATES_OVERRIDE']]
+    else
+      if File.directory?(template_git_directory)
+        Paths = [template_directory]
+      else
+        puts "=========================================================================================="
+        puts "WARNING: Using offline templates. Run `motion repo` to download the latest templates."
+        puts "=========================================================================================="
+        Paths = [offline_templates]
+      end
     end
+
+    Paths << File.expand_path(File.join(ENV['HOME'], 'Library/RubyMotion/template'))
 
     # Templates from RubyMotion gems.
     if defined?(Gem) and defined?(Gem::Specification) and Gem::Specification.respond_to?(:each)
@@ -80,9 +93,21 @@ module Motion; module Project
     end
 
     def self.all_templates_description
-      all_templates.keys.map do |t|
+      all_templates.keys.sort.map do |t|
         template = (t == DefaultTemplate) ? "#{t} (default)" : t
-        "  * #{template}\n"
+        template = "  * #{template}"
+        metadata_file = File.join(all_templates[t], "metadata.yaml")
+        begin
+          if(File.exist?(metadata_file))
+            template += "\n" + YAML.load(File.read(metadata_file)).to_yaml.split("\n").map { |l| "    " + l }.join("\n")
+          end
+        rescue => exception
+          puts "=========================================================================================="
+          puts "#{exception}"
+          puts "Unable to parse metadata from template: #{t}."
+          puts "=========================================================================================="
+        end
+        template += "\n"
       end.join('')
     end
 
