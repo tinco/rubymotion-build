@@ -62,7 +62,10 @@ module Motion; module Project
       # first we have to establish for each file which files it depends on
 
       consts_defined  = build_context.flat_map {|f| f[:definitions] }
-      consts_referred = build_context.flat_map {|f| f[:references] }
+      consts_referred = {}
+      build_context.each do |f|
+        consts_referred[f[:name]] = f[:references]
+      end
 
       puts "---- Experimental: "
       puts "consts_defined: #{consts_defined.inspect}"
@@ -79,14 +82,6 @@ module Motion; module Project
       puts "Result: "
       puts dependency.inspect
       exit 1
-
-      # Needed:
-      # "All"=>"./app/beer.rb",
-      # "Beer::All"=>"./app/beer.rb",
-      # "CELLID"=>"./app/beer_list_controller.rb",
-      # "BeerListController::CELLID"=>"./app/beer_list_controller.rb",
-      # "ViewIdentifier"=>"./app/beer_map_controller.rb",
-      # "BeerMapController::ViewIdentifier"=>"./app/beer_map_controller.rb"
 
       # Expected result:
       #       ----
@@ -255,6 +250,8 @@ module Motion; module Project
         match_top_const(sexp) ||
         match_var_ref(sexp) ||
         match_assign(sexp) ||
+        match_method_add_arg(sexp) ||
+        match_method_add_block(sexp) ||
         match_def_references(sexp) || # todo this isn't really an expression, but we'll have to modify the definitions thing to explore scopes without names or something to remove this here
         [] # etc..
     end
@@ -297,6 +294,33 @@ module Motion; module Project
       if sexp && sexp[0] == :call
         match_expression(sexp[1]) # TODO continue implementation
       end
+    end
+
+    def match_method_add_arg(sexp)
+      # ,[:method_add_arg,
+        # [:call, [ ...]],
+        # [:arg_paren, [:args_add_block, [[:var_ref,
+      if sexp && sexp[0] == :method_add_arg
+        result = match_expression(sexp[1])
+        if sexp[2] && sexp[2][0] == :args_add_block
+          result += sexp[2][1].map {|e| match_expression(e)}.flatten
+        end
+      end
+      result
+    end
+
+    def match_method_add_block(sexp)
+      # [:method_add_block,
+      #   [:call, [ .. ] ]
+        # [:brace_block, [:block_var, [:params, [[:@ident, "beer", [22, 22]]], ..], false], [[:method_add_arg, [:call, [:call, [:var_ref, [:@kw, "self", [22, 28]]], :".", [:@ident, "view", [22, 33]]], :".", [:@ident, "addAnnotation", [22, 38]]], [:arg_paren, [:args_add_block, [[:var_ref, [:@ident, "beer", [22, 52]]]], false]]]]]
+      # ]
+      if sexp && sexp[0] == :method_add_block
+        result = match_expression(sexp[1])
+        if sexp[2] && sexp[2][0] == :brace_block
+          result += sexp[2][2].map {|e| match_expression(e)}.flatten
+        end
+      end
+      result
     end
 
     # [:const_path_ref, [:var_ref, [:@const, "B1", [1, 0]]], [:@const, "B2", [1, 4]]]
