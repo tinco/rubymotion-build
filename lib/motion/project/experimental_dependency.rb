@@ -63,6 +63,27 @@ module Motion; module Project
       establish_dependencies(analyzers)
     end
 
+    def run_debug
+      analyzers = @file_paths.map {|f| ConstantsAnalyzer.new(f) }
+      analyzers.each(&:run)
+      dependency = establish_dependencies(analyzers)
+
+      consts_defined = Hash[analyzers.map {|a| [a.file_name, a.definitions]}]
+      consts_referred = {}
+      analyzers.each do |a|
+        a.references.each do |r|
+          consts_referred[r] ||= []
+          consts_referred[r] << a.file_name
+        end
+      end
+
+      {
+        consts_defined: consts_defined,
+        consts_referred: consts_referred,
+        dependency: dependency
+      }
+    end
+
     # TODO move to config.rb (or something..)
     def resolve_order(dependants)
       # we sort by number of dependencies
@@ -87,8 +108,6 @@ module Motion; module Project
       build_order
     end
 
-    private
-
     def establish_dependencies(build_context)
       definitions = {}
       dependants = {}
@@ -109,6 +128,8 @@ module Motion; module Project
 
       dependants
     end
+
+    private
 
     def get_dependency(file_name, definitions, reference)
       name, nesting = reference

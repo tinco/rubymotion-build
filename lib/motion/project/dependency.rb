@@ -55,21 +55,29 @@ module Motion; module Project
     end
 
     def run
-      consts_defined  = {}
-      consts_referred = {}
-      @file_paths.each do |path|
-        parser = Constant.new(File.read(path))
-        parser.parse
-        parser.defined.each do |const|
-          consts_defined[const] = path
-        end
-        parser.referred.each do |const|
-          consts_referred[const] ||= []
-          consts_referred[const] << path
-        end
-      end
+      consts_defined, consts_referred = find_definitions_and_references
 
+      dependency = find_dependencies(consts_defined, consts_referred)
+
+      dependency
+    end
+
+    def run_debug
+      consts_defined, consts_referred = find_definitions_and_references
+      dependency = find_dependencies(consts_defined, consts_referred)
+
+      {
+        consts_defined: consts_defined,
+        consts_referred: consts_referred,
+        dependency: dependency
+      }
+    end
+
+    private
+
+    def find_dependencies(consts_defined, consts_referred)
       dependency = @dependencies.dup
+
       consts_defined.each do |const, def_path|
         if consts_referred[const]
           consts_referred[const].each do |ref_path|
@@ -88,6 +96,24 @@ module Motion; module Project
       end
 
       dependency
+    end
+
+    def find_definitions_and_references
+      consts_defined  = {}
+      consts_referred = {}
+      @file_paths.each do |path|
+        parser = Constant.new(File.read(path))
+        parser.parse
+        parser.defined.each do |const|
+          consts_defined[const] = path
+        end
+        parser.referred.each do |const|
+          consts_referred[const] ||= []
+          consts_referred[const] << path
+        end
+      end
+
+      [consts_defined, consts_referred]
     end
 
     class Constant < Ripper::SexpBuilder

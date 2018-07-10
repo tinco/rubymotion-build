@@ -93,6 +93,6 @@ task :__show_dependencies do
 
   config = App.config
   klass = ENV['experimental_dependency'] ? Motion::Project::ExperimentalDependency : Motion::Project::Dependency
-  dependencies = klass.new(config.files - config.exclude_from_detect_dependencies, config.dependencies).run
+  dependencies = klass.new(config.files - config.exclude_from_detect_dependencies, config.dependencies).run_debug
   App.info "Dependencies:\n", dependencies.sort.pretty_inspect
 end
