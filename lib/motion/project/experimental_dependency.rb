@@ -252,6 +252,8 @@ module Motion; module Project
         match_assign(sexp) ||
         match_method_add_arg(sexp) ||
         match_method_add_block(sexp) ||
+        match_array(sexp) ||
+        match_opassign(sexp) ||
         match_def_references(sexp) || # todo this isn't really an expression, but we'll have to modify the definitions thing to explore scopes without names or something to remove this here
         [] # etc..
     end
@@ -348,8 +350,21 @@ module Motion; module Project
       end
     end
 
+    def match_array(sexp)
+      if sexp && sexp[0] == :array
+        sexp[1].flat_map {|a| match_expression(a)}.compact
+      end
+    end
+
     def match_definition(sexp)
       match_class_def(sexp) || match_module_def(sexp) || match_constant_def(sexp) || match_method_def(sexp)
+    end
+
+    def match_opassign(sexp)
+      # [:opassign, [:var_field, [..], [:@op, "||=", [51, 29]], [:call, .. ]]]
+      if sexp && sexp.first == :opassign
+        match_expression(sexp[1]) + match_expression(sexp[3])
+      end
     end
 
     def match_method_def(sexp)
