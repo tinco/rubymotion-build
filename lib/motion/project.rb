@@ -86,3 +86,13 @@ task :__local_crashlog do
     sh "/usr/bin/open -a Console \"#{logs.last}\""
   end
 end
+
+# This task is meant for debugging purposes
+task :__show_dependencies do
+  require 'pp'
+
+  config = App.config
+  klass = ENV['experimental_dependency'] ? Motion::Project::ExperimentalDependency : Motion::Project::Dependency
+  dependencies = klass.new(config.files - config.exclude_from_detect_dependencies, config.dependencies).run
+  App.info "Dependencies:\n", dependencies.sort.pretty_inspect
+end
